@@ -46,8 +46,16 @@ export default function AdminModal({ isOpen, onClose, currentUserId, onUserUpdat
     if (isOpen) {
       fetchUsers();
       setSuccessMsg('');
+
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -157,7 +165,7 @@ export default function AdminModal({ isOpen, onClose, currentUserId, onUserUpdat
   });
 
   return (
-    <div className="modal-overlay" onClick={onClose} style={{ backdropFilter: 'blur(4px)', background: 'rgba(15, 23, 42, 0.4)' }}>
+    <div className="modal-overlay" onClick={onClose} style={{ backdropFilter: 'blur(4px)', background: 'rgba(15, 23, 42, 0.4)', animation: 'none' }}>
       <div
         className="modal-content"
         style={{
@@ -172,7 +180,9 @@ export default function AdminModal({ isOpen, onClose, currentUserId, onUserUpdat
           boxShadow: '0 20px 40px -15px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(15, 23, 42, 0.08)',
           border: '1px solid #e2e8f0',
           overflow: 'hidden',
-          fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif"
+          fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+          animation: 'none',
+          transform: 'none',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -344,16 +354,17 @@ export default function AdminModal({ isOpen, onClose, currentUserId, onUserUpdat
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '6px 14px',
+                padding: '5px 14px',
                 borderRadius: '6px',
-                border: filterTab === 'pending' ? '1px solid #cbd5e1' : '1px solid transparent',
+                border: '1px solid',
+                borderColor: filterTab === 'pending' ? '#cbd5e1' : 'transparent',
                 background: filterTab === 'pending' ? '#ffffff' : 'transparent',
                 color: filterTab === 'pending' ? '#0f172a' : '#64748b',
-                fontWeight: filterTab === 'pending' ? 600 : 500,
+                fontWeight: 500,
                 fontSize: '13px',
                 cursor: 'pointer',
                 boxShadow: filterTab === 'pending' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                transition: 'all 0.15s'
+                transition: 'background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease'
               }}
             >
               <span>Pending Review</span>
@@ -365,7 +376,7 @@ export default function AdminModal({ isOpen, onClose, currentUserId, onUserUpdat
                     borderRadius: '9999px',
                     padding: '1px 7px',
                     fontSize: '11px',
-                    fontWeight: 700
+                    fontWeight: 600
                   }}
                 >
                   {pendingCount}
@@ -380,16 +391,17 @@ export default function AdminModal({ isOpen, onClose, currentUserId, onUserUpdat
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '6px 14px',
+                padding: '5px 14px',
                 borderRadius: '6px',
-                border: filterTab === 'approved' ? '1px solid #cbd5e1' : '1px solid transparent',
+                border: '1px solid',
+                borderColor: filterTab === 'approved' ? '#cbd5e1' : 'transparent',
                 background: filterTab === 'approved' ? '#ffffff' : 'transparent',
                 color: filterTab === 'approved' ? '#0f172a' : '#64748b',
-                fontWeight: filterTab === 'approved' ? 600 : 500,
+                fontWeight: 500,
                 fontSize: '13px',
                 cursor: 'pointer',
                 boxShadow: filterTab === 'approved' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                transition: 'all 0.15s'
+                transition: 'background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease'
               }}
             >
               <span>Active Accounts</span>
@@ -403,16 +415,17 @@ export default function AdminModal({ isOpen, onClose, currentUserId, onUserUpdat
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '6px 14px',
+                padding: '5px 14px',
                 borderRadius: '6px',
-                border: filterTab === 'all' ? '1px solid #cbd5e1' : '1px solid transparent',
+                border: '1px solid',
+                borderColor: filterTab === 'all' ? '#cbd5e1' : 'transparent',
                 background: filterTab === 'all' ? '#ffffff' : 'transparent',
                 color: filterTab === 'all' ? '#0f172a' : '#64748b',
-                fontWeight: filterTab === 'all' ? 600 : 500,
+                fontWeight: 500,
                 fontSize: '13px',
                 cursor: 'pointer',
                 boxShadow: filterTab === 'all' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                transition: 'all 0.15s'
+                transition: 'background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease'
               }}
             >
               <span>All ({users.length})</span>

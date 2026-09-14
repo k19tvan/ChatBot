@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Search,
@@ -30,6 +30,17 @@ export default function SettingsModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [showMfaBanner, setShowMfaBanner] = useState(true);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const navItems = [
@@ -44,7 +55,7 @@ export default function SettingsModal({
   );
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={onClose} style={{ animation: 'none' }}>
       <div
         className="chatgpt-settings-dialog"
         onClick={(e) => e.stopPropagation()}
@@ -61,6 +72,8 @@ export default function SettingsModal({
           overflow: 'hidden',
           fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif",
           border: '1px solid #e2e8f0',
+          animation: 'none',
+          transform: 'none',
         }}
       >
         {/* Left Navigation Sidebar */}
@@ -144,7 +157,7 @@ export default function SettingsModal({
           </div>
 
           {/* Menu items */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, overflowY: 'auto' }}>
             {filteredNav.map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
@@ -157,16 +170,16 @@ export default function SettingsModal({
                     display: 'flex',
                     alignItems: 'center',
                     gap: '10px',
-                    padding: '9px 12px',
+                    padding: '8px 12px',
                     borderRadius: '8px',
                     border: 'none',
                     background: active ? '#eff6ff' : 'transparent',
                     color: active ? '#2563eb' : '#475569',
                     fontSize: '13.5px',
-                    fontWeight: active ? 600 : 500,
+                    fontWeight: 500,
                     cursor: 'pointer',
                     textAlign: 'left',
-                    transition: 'all 0.15s ease',
+                    transition: 'background-color 0.12s ease, color 0.12s ease',
                   }}
                   onMouseEnter={(e) => {
                     if (!active) e.currentTarget.style.background = '#f1f5f9';
