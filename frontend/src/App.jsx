@@ -58,7 +58,7 @@ export default function App() {
   const [models, setModels] = useState(['qwen35_4b']);
   const [currentModel, setCurrentModel] = useState('qwen35_4b');
   const [input, setInput] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingIds, setStreamingIds] = useState(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -75,16 +75,47 @@ export default function App() {
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const userScrolledUpRef = useRef(false);
-  const abortControllerRef = useRef(null);
-  const streamBufferRef = useRef('');
-  const activeAssistantMsgRef = useRef('');
-  const animFrameIdRef = useRef(null);
-  const isStreamingRef = useRef(false);
-  const prevStreamingRef = useRef(false);
+  const activeStreamsRef = useRef(new Map());
+  const activeIdRef = useRef(activeId);
+
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+
+  const isCurrentStreaming = Boolean(activeId && streamingIds.has(activeId));
 
   // Apply light theme permanently
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
+
+    const handleVisibilityChange = () => {
+      // When tab becomes visible again or hidden, flush remaining stream buffers for all active sessions
+      const streams = activeStreamsRef.current;
+      if (streams.size === 0) return;
+
+      setConversations((prev) =>
+        prev.map((c) => {
+          const session = streams.get(c.id);
+          if (session && session.streamBuffer.length > 0) {
+            session.activeAssistantMsg += session.streamBuffer;
+            session.streamBuffer = '';
+            const updated = [...c.messages];
+            const lastIdx = updated.length - 1;
+            if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+              updated[lastIdx] = {
+                ...updated[lastIdx],
+                content: session.activeAssistantMsg
+              };
+            }
+            return { ...c, messages: updated, updatedAt: Date.now() };
+          }
+          return c;
+        })
+      );
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
   // Save settings
@@ -242,16 +273,7 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Sync conversation when streaming ends
-  useEffect(() => {
-    if (prevStreamingRef.current && !isStreaming && currentUser && activeId) {
-      const conv = conversations.find((c) => c.id === activeId);
-      if (conv) {
-        syncConversationToBackend(conv);
-      }
-    }
-    prevStreamingRef.current = isStreaming;
-  }, [isStreaming, currentUser, activeId, conversations]);
+
 
   const handleAuthSuccess = async (user, token) => {
     setCurrentUser(user);
@@ -347,7 +369,7 @@ export default function App() {
   // Reset active session: clear messages to reset token usage back to 0
   const handleResetSession = () => {
     if (!activeId) return;
-    handleStopGeneration();
+    handleStopGeneration(activeId);
     setConversations((prev) =>
       prev.map((c) => (c.id === activeId ? { ...c, messages: [], updatedAt: Date.now() } : c))
     );
@@ -388,17 +410,29 @@ export default function App() {
     scrollToBottom(true);
   }, [activeId]);
 
-  // Typewriter animation loop for smooth gradual text rendering
-  const startTypewriterLoop = (convId) => {
-    const renderFrame = () => {
-      if (streamBufferRef.current.length > 0) {
-        // Adaptive speed: drain characters smoothly according to backlog size
-        const backlog = streamBufferRef.current.length;
-        const take = backlog > 80 ? 5 : backlog > 30 ? 3 : backlog > 10 ? 2 : 1;
-        const chunk = streamBufferRef.current.slice(0, take);
-        streamBufferRef.current = streamBufferRef.current.slice(take);
+  // Per-session streaming typewriter loop: runs concurrently and background-safe
+  const startSessionTypewriterLoop = (convId) => {
+    let lastFlushTime = 0;
 
-        activeAssistantMsgRef.current += chunk;
+    const flushBuffer = (force = false) => {
+      const session = activeStreamsRef.current.get(convId);
+      if (!session) return;
+      if (session.streamBuffer.length === 0) return;
+
+      const now = performance.now();
+      // In background tabs, or if forced, or every ~20ms: flush chunk
+      if (force || document.hidden || now - lastFlushTime >= 20) {
+        const take = document.hidden
+          ? session.streamBuffer.length
+          : session.streamBuffer.length > 60
+          ? 6
+          : session.streamBuffer.length > 20
+          ? 3
+          : 1;
+
+        const chunk = session.streamBuffer.slice(0, take);
+        session.streamBuffer = session.streamBuffer.slice(take);
+        session.activeAssistantMsg += chunk;
 
         setConversations((prev) =>
           prev.map((c) => {
@@ -408,7 +442,7 @@ export default function App() {
             if (lastIdx >= 0 && updatedMessages[lastIdx].role === 'assistant') {
               updatedMessages[lastIdx] = {
                 ...updatedMessages[lastIdx],
-                content: activeAssistantMsgRef.current
+                content: session.activeAssistantMsg
               };
             }
             return {
@@ -419,23 +453,62 @@ export default function App() {
           })
         );
 
-        // Only scroll if user hasn't scrolled up to read previous messages
-        scrollToBottom(false);
-      }
-
-      if (isStreamingRef.current || streamBufferRef.current.length > 0) {
-        animFrameIdRef.current = requestAnimationFrame(renderFrame);
-      } else {
-        setIsStreaming(false);
+        lastFlushTime = now;
+        // Only scroll if this conversation is currently being viewed
+        if (!document.hidden && activeIdRef.current === convId) {
+          scrollToBottom(false);
+        }
       }
     };
 
-    animFrameIdRef.current = requestAnimationFrame(renderFrame);
+    const cleanupSession = () => {
+      const session = activeStreamsRef.current.get(convId);
+      if (session) {
+        if (session.timerId) clearInterval(session.timerId);
+        if (session.animFrameId) cancelAnimationFrame(session.animFrameId);
+        activeStreamsRef.current.delete(convId);
+      }
+      setStreamingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(convId);
+        return next;
+      });
+      // Sync completed conversation to backend if logged in
+      setConversations((latestConvs) => {
+        const conv = latestConvs.find((c) => c.id === convId);
+        if (conv) syncConversationToBackend(conv);
+        return latestConvs;
+      });
+    };
+
+    // Use setInterval as the primary background-safe driver
+    const timerId = setInterval(() => {
+      flushBuffer();
+      const session = activeStreamsRef.current.get(convId);
+      if (session && !session.isStreaming && session.streamBuffer.length === 0) {
+        cleanupSession();
+      }
+    }, 20);
+
+    // Also use requestAnimationFrame when active tab is focused
+    const renderFrame = () => {
+      const session = activeStreamsRef.current.get(convId);
+      if (session && (session.isStreaming || session.streamBuffer.length > 0)) {
+        flushBuffer();
+        session.animFrameId = requestAnimationFrame(renderFrame);
+      } else {
+        cleanupSession();
+      }
+    };
+
+    const session = activeStreamsRef.current.get(convId);
+    if (session) {
+      session.timerId = timerId;
+      session.animFrameId = requestAnimationFrame(renderFrame);
+    }
   };
 
   const handleNewChat = () => {
-    if (isStreaming) handleStopGeneration();
-
     const newId = `chat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newConv = {
       id: newId,
@@ -451,12 +524,11 @@ export default function App() {
   };
 
   const handleSelectConversation = (id) => {
-    if (isStreaming) handleStopGeneration();
     setActiveId(id);
   };
 
   const handleDeleteConversation = (id) => {
-    if (isStreaming && activeId === id) handleStopGeneration();
+    handleStopGeneration(id);
 
     setConversations((prev) => {
       const remaining = prev.filter((c) => c.id !== id);
@@ -482,29 +554,27 @@ export default function App() {
     });
   };
 
-  const handleStopGeneration = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+  const handleStopGeneration = (convId = activeId) => {
+    if (!convId) return;
+    const session = activeStreamsRef.current.get(convId);
+    if (session) {
+      if (session.abortController) {
+        session.abortController.abort();
+      }
+      if (session.timerId) clearInterval(session.timerId);
+      if (session.animFrameId) cancelAnimationFrame(session.animFrameId);
+      activeStreamsRef.current.delete(convId);
     }
-    isStreamingRef.current = false;
-    streamBufferRef.current = '';
-    if (animFrameIdRef.current) {
-      cancelAnimationFrame(animFrameIdRef.current);
-    }
-    setIsStreaming(false);
+    setStreamingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(convId);
+      return next;
+    });
   };
 
   const handleSendMessage = async (textToSend = null) => {
     const promptText = (textToSend !== null ? textToSend : input).trim();
-    if (!promptText || isStreaming) return;
-
-    if (tokenStats.isExceeded) {
-      alert('Session token limit reached (2,048 tokens). Please click "Reset Session" to continue chatting.');
-      return;
-    }
-
-    setInput('');
+    if (!promptText) return;
 
     let currentId = activeId;
     let targetConv = activeConversation;
@@ -523,7 +593,19 @@ export default function App() {
       setConversations((prev) => [targetConv, ...prev]);
       setActiveId(newId);
       currentId = newId;
-    } else if (targetConv.messages.length === 0) {
+    }
+
+    // If this specific session is already streaming, don't double send
+    if (activeStreamsRef.current.has(currentId)) return;
+
+    if (tokenStats.isExceeded) {
+      alert('Session token limit reached (2,048 tokens). Please click "Reset Session" to continue chatting.');
+      return;
+    }
+
+    setInput('');
+
+    if (targetConv.messages.length === 0) {
       // Auto-set title from first user prompt
       const title = promptText.length > 30 ? `${promptText.substring(0, 30)}...` : promptText;
       handleRenameConversation(currentId, title);
@@ -546,19 +628,30 @@ export default function App() {
       })
     );
 
-    setIsStreaming(true);
-    isStreamingRef.current = true;
-    streamBufferRef.current = '';
-    activeAssistantMsgRef.current = '';
+    // Mark conversation as streaming
+    setStreamingIds((prev) => new Set(prev).add(currentId));
+
+    const controller = new AbortController();
+    const sessionData = {
+      convId: currentId,
+      abortController: controller,
+      streamBuffer: '',
+      activeAssistantMsg: '',
+      isStreaming: true,
+      timerId: null,
+      animFrameId: null
+    };
+    activeStreamsRef.current.set(currentId, sessionData);
 
     // Reset user scroll state so viewport snaps to the new user prompt
     userScrolledUpRef.current = false;
-    setTimeout(() => scrollToBottom(true), 10);
+    setTimeout(() => {
+      if (activeIdRef.current === currentId) {
+        scrollToBottom(true);
+      }
+    }, 10);
 
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    startTypewriterLoop(currentId);
+    startSessionTypewriterLoop(currentId);
 
     try {
       const response = await fetch('/api/chat', {
@@ -599,8 +692,11 @@ export default function App() {
             const dataStr = trimmed.replace(/^data:\s*/, '');
             try {
               const parsed = JSON.parse(dataStr);
+              const session = activeStreamsRef.current.get(currentId);
+              if (!session) break;
+
               if (currentEvent === 'exceeded' || parsed.status === 'exceeded') {
-                isStreamingRef.current = false;
+                session.isStreaming = false;
                 const msg = parsed.message || 'Session token limit reached (2,048/2,048 tokens). Please click Reset Session to continue.';
                 setConversations((prev) =>
                   prev.map((c) => {
@@ -608,11 +704,11 @@ export default function App() {
                     const updated = [...c.messages];
                     const lastIdx = updated.length - 1;
                     if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-                      let content = activeAssistantMsgRef.current;
+                      let content = session.activeAssistantMsg;
                       const codeFences = (content.match(/```/g) || []).length;
                       if (codeFences % 2 === 1) {
                         content += '\n```';
-                        activeAssistantMsgRef.current = content;
+                        session.activeAssistantMsg = content;
                       }
                       updated[lastIdx] = {
                         ...updated[lastIdx],
@@ -625,12 +721,12 @@ export default function App() {
                   })
                 );
               } else if (parsed.token) {
-                streamBufferRef.current += parsed.token;
+                session.streamBuffer += parsed.token;
               } else if (parsed.status === 'completed') {
-                isStreamingRef.current = false;
+                session.isStreaming = false;
               } else if (parsed.error) {
-                streamBufferRef.current += `\n\n*[Error: ${parsed.error}]*`;
-                isStreamingRef.current = false;
+                session.streamBuffer += `\n\n*[Error: ${parsed.error}]*`;
+                session.isStreaming = false;
               }
             } catch {
               // Ignore non-json or control data
@@ -641,19 +737,24 @@ export default function App() {
       }
     } catch (err) {
       if (err.name === 'AbortError') {
-        console.log('Generation aborted by user.');
+        console.log(`Generation for conversation ${currentId} aborted by user.`);
       } else {
         console.error('Streaming error:', err);
-        streamBufferRef.current += `\n\n*[Connection error: ${err.message}]*`;
+        const session = activeStreamsRef.current.get(currentId);
+        if (session) {
+          session.streamBuffer += `\n\n*[Connection error: ${err.message}]*`;
+        }
       }
     } finally {
-      isStreamingRef.current = false;
-      abortControllerRef.current = null;
+      const session = activeStreamsRef.current.get(currentId);
+      if (session) {
+        session.isStreaming = false;
+      }
     }
   };
 
   const handleRegenerate = () => {
-    if (isStreaming || !activeConversation || messages.length === 0) return;
+    if (isCurrentStreaming || !activeConversation || messages.length === 0) return;
     const lastUserIdx = [...messages].reverse().findIndex((m) => m.role === 'user');
     if (lastUserIdx === -1) return;
 
@@ -678,7 +779,10 @@ export default function App() {
 
   const handleClearAll = () => {
     if (window.confirm('Are you sure you want to delete all conversation history?')) {
-      handleStopGeneration();
+      // Abort all active streams
+      for (const [id] of activeStreamsRef.current) {
+        handleStopGeneration(id);
+      }
       if (currentUser) {
         for (const c of conversations) {
           syncDeleteConversation(c.id);
@@ -744,6 +848,7 @@ export default function App() {
       <Sidebar
         conversations={conversations}
         activeId={activeId}
+        streamingIds={streamingIds}
         onSelectConversation={handleSelectConversation}
         onNewChat={handleNewChat}
         onDeleteConversation={handleDeleteConversation}
@@ -813,8 +918,8 @@ export default function App() {
                 input={input}
                 setInput={setInput}
                 onSend={() => handleSendMessage()}
-                onStop={handleStopGeneration}
-                isStreaming={isStreaming}
+                onStop={() => handleStopGeneration(activeId)}
+                isStreaming={isCurrentStreaming}
                 centered={true}
                 tokenStats={tokenStats}
                 onOpenTokenStats={() => setTokenStatsOpen(true)}
@@ -830,8 +935,8 @@ export default function App() {
                   <ChatMessage
                     key={index}
                     message={msg}
-                    isStreaming={isLast && isStreaming}
-                    onRegenerate={isLast && !isStreaming ? handleRegenerate : null}
+                    isStreaming={isLast && isCurrentStreaming}
+                    onRegenerate={isLast && !isCurrentStreaming ? handleRegenerate : null}
                   />
                 );
               })}
@@ -876,8 +981,8 @@ export default function App() {
               input={input}
               setInput={setInput}
               onSend={() => handleSendMessage()}
-              onStop={handleStopGeneration}
-              isStreaming={isStreaming}
+              onStop={() => handleStopGeneration(activeId)}
+              isStreaming={isCurrentStreaming}
               tokenStats={tokenStats}
               onOpenTokenStats={() => setTokenStatsOpen(true)}
               isExceeded={tokenStats.isExceeded}

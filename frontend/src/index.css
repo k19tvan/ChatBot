@@ -252,6 +252,21 @@ body {
   padding-right: 6px;
 }
 
+@keyframes sidebarPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+}
+
+.sidebar-streaming-pulse {
+  animation: sidebarPulse 1.2s ease-in-out infinite;
+}
+
 .history-item-actions {
   display: none;
   align-items: center;

@@ -19,6 +19,7 @@ import {
 export default function Sidebar({
   conversations,
   activeId,
+  streamingIds = new Set(),
   onSelectConversation,
   onNewChat,
   onDeleteConversation,
@@ -157,7 +158,26 @@ export default function Sidebar({
                       </div>
                     ) : (
                       <>
-                        <span className="history-item-title">{conv.title || 'Untitled conversation'}</span>
+                        <span className="history-item-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {conv.title || 'Untitled conversation'}
+                          </span>
+                          {streamingIds && streamingIds.has(conv.id) && (
+                            <span
+                              className="sidebar-streaming-pulse"
+                              title="Generating response..."
+                              style={{
+                                display: 'inline-block',
+                                width: '7px',
+                                height: '7px',
+                                borderRadius: '50%',
+                                backgroundColor: '#38bdf8',
+                                flexShrink: 0,
+                                boxShadow: '0 0 8px #38bdf8'
+                              }}
+                            />
+                          )}
+                        </span>
                         <div className="history-item-actions">
                           <button
                             className="icon-btn-sm"
