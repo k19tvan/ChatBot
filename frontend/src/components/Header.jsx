@@ -57,7 +57,7 @@ export default function Header({
           <button
             className={`token-pill-btn ${tokenStats.isExceeded ? 'is-exceeded' : ''}`}
             onClick={onOpenTokenStats}
-            title={tokenStats.isExceeded ? "Session token limit reached! Click to view details or reset session" : "Click to view session token usage breakdown"}
+            title={tokenStats.isExceeded ? "Output token limit reached! Click to view details or reset session" : "Click to view output token usage breakdown"}
           >
             <Zap size={13} color={tokenStats.isExceeded ? '#ef4444' : 'var(--accent-cyan)'} />
             <span>

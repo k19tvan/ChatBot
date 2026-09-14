@@ -60,7 +60,7 @@ export default function TokenStatsModal({ isOpen, onClose, tokenStats, activeMod
             </div>
             <div>
               <div style={{ fontSize: '18px', fontWeight: '700' }}>
-                Session Token Statistics
+                Output Token Statistics
               </div>
               <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', fontWeight: '400' }}>
                 Model: <span style={{ color: 'var(--accent-color)' }}>{activeModel}</span>
@@ -96,7 +96,7 @@ export default function TokenStatsModal({ isOpen, onClose, tokenStats, activeMod
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <div>
               <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Total session tokens used:
+                Total output tokens generated:
               </span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '2px' }}>
                 <span

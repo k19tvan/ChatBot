@@ -216,24 +216,23 @@ async def chat_stream(request: Request, body: ChatRequest):
     req_tokens = body.max_tokens or MAX_RESPONSE_TOKENS or 2048
     max_tokens = max(req_tokens, MAX_RESPONSE_TOKENS or 2048)
 
-    # 1. Count input session tokens
-    input_tokens = 0
-    if body.system_prompt and body.system_prompt.strip():
-        input_tokens += max(1, len(body.system_prompt.strip()) // 3) + 4
+    # 1. Count past assistant completion tokens in this session
+    output_tokens = 0
     for msg in body.messages:
-        content = msg.content or ""
-        input_tokens += max(1, len(content) // 3) + 4 if content else 0
+        if msg.role.lower().strip() == "assistant":
+            content = msg.content or ""
+            output_tokens += max(1, len(content) // 3) if content else 0
 
-    # 2. Check if already exceeded before invoking model
-    if MAX_SESSION_TOKENS and input_tokens >= MAX_SESSION_TOKENS:
+    # 2. Check if output token limit is already reached before generating
+    if MAX_SESSION_TOKENS and output_tokens >= MAX_SESSION_TOKENS:
         async def exceed_generator():
             yield {
                 "event": "exceeded",
                 "data": json.dumps({
                     "status": "exceeded",
-                    "total_tokens": input_tokens,
+                    "total_tokens": output_tokens,
                     "max_session_tokens": MAX_SESSION_TOKENS,
-                    "message": f"Session token limit reached ({input_tokens}/{MAX_SESSION_TOKENS} tokens). Please click Reset Session to continue."
+                    "message": f"Output token limit reached ({output_tokens}/{MAX_SESSION_TOKENS} tokens). Please click Reset Session to continue."
                 }),
             }
         return EventSourceResponse(exceed_generator())
@@ -277,20 +276,20 @@ async def chat_stream(request: Request, body: ChatRequest):
                             "data": json.dumps({"token": chunk.content}),
                         }
 
-                        # Check if generated tokens pass session limit using cumulative text (matching frontend formula)
-                        generated_tokens = max(1, len(generated_text) // 3) + 4
-                        total_session_tokens = input_tokens + generated_tokens
-                        if MAX_SESSION_TOKENS and total_session_tokens >= MAX_SESSION_TOKENS:
+                        # Check if generated output tokens pass output limit
+                        current_stream_tokens = max(1, len(generated_text) // 3)
+                        total_output_tokens = output_tokens + current_stream_tokens
+                        if MAX_SESSION_TOKENS and total_output_tokens >= MAX_SESSION_TOKENS:
                             logger.warning(
-                                f"Session token limit reached during generation ({total_session_tokens}/{MAX_SESSION_TOKENS}). Stopping."
+                                f"Output token limit reached during generation ({total_output_tokens}/{MAX_SESSION_TOKENS}). Stopping."
                             )
                             yield {
                                 "event": "exceeded",
                                 "data": json.dumps({
                                     "status": "exceeded",
-                                    "total_tokens": total_session_tokens,
+                                    "total_tokens": total_output_tokens,
                                     "max_session_tokens": MAX_SESSION_TOKENS,
-                                    "message": f"Session token limit reached ({total_session_tokens}/{MAX_SESSION_TOKENS} tokens). Please click Reset Session to continue."
+                                    "message": f"Output token limit reached ({total_output_tokens}/{MAX_SESSION_TOKENS} tokens). Please click Reset Session to continue."
                                 }),
                             }
                             return

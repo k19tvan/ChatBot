@@ -138,18 +138,8 @@ def build_chat_graph() -> Any:
             if not input_messages or not isinstance(input_messages[0], SystemMessage):
                 input_messages = [SystemMessage(content=sys_prompt.strip())] + input_messages
 
-        # Enforce hard session token limit: stop when token limit is passed
-        total_input_tokens = sum(estimate_message_tokens(m) for m in input_messages)
-        if MAX_SESSION_TOKENS and total_input_tokens >= MAX_SESSION_TOKENS:
-            logger.warning(
-                f"Session token limit exceeded: {total_input_tokens} >= {MAX_SESSION_TOKENS}. Stopping."
-            )
-            raise ValueError(
-                f"Session token limit exceeded ({total_input_tokens}/{MAX_SESSION_TOKENS} tokens). Please reset session."
-            )
-
         logger.info(
-            f"Invoking LLM for session with {len(input_messages)} messages (~{total_input_tokens} tokens, limit: {MAX_SESSION_TOKENS})."
+            f"Invoking LLM for session with {len(input_messages)} messages (max response tokens: {response_tokens})."
         )
         response = await llm.ainvoke(input_messages)
         return {"messages": [response]}
